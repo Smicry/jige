@@ -14,7 +14,7 @@ func main() {
 	fmt.Println("🤖 AI Agent 启动中...")
 
 	// 创建AI代理
-	aiAgent, err := agent.NewAgent()
+	aiAgent, err := agent.New()
 	if err != nil {
 		fmt.Println("启动代理出错:", err)
 		return
