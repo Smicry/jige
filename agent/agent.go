@@ -3,66 +3,51 @@ package agent
 import (
 	"context"
 	"fmt"
+	
+	"jige/localtools"
 
-	"jige/prompt"
-	"jige/tools"
-
-	"github.com/tmc/langchaingo/llms"
+	"github.com/tmc/langchaingo/agents"
 	"github.com/tmc/langchaingo/llms/ollama"
+	"github.com/tmc/langchaingo/tools"
 )
 
-// Agent AI代理
 type Agent struct {
-	intentDetector *IntentDetector
-	toolRegistry   *tools.ToolRegistry
-	llm            *ollama.LLM
+	agent *agents.OneShotZeroAgent
 }
 
 func New() (*Agent, error) {
-	llm, err := ollama.New(ollama.WithModel("deepseek-r1:1.5b"))
+	llm, err := ollama.New(
+		ollama.WithModel(llama3Dot1_8b),
+	)
 	if err != nil {
 		return nil, err
 	}
-	agent := &Agent{
-		intentDetector: NewIntentDetector(),
-		toolRegistry:   tools.NewToolRegistry(),
-		llm:            llm,
-	}
-	agent.registerTools()
-	return agent, nil
-}
-
-func (a *Agent) registerTools() {
-	a.toolRegistry.Register(&tools.CalculatorTool{})
-	a.toolRegistry.Register(&tools.WeatherTool{})
-	a.toolRegistry.Register(&tools.TimeTool{})
-	a.toolRegistry.Register(&tools.WebSearchTool{})
-	a.toolRegistry.Register(&tools.UnknownTool{})
+	return &Agent{
+		agent: agents.NewOneShotAgent(
+			llm,
+			[]tools.Tool{
+				&localtools.Now{},
+			},
+		),
+	}, nil
 }
 
 // Process 处理用户查询
-func (a *Agent) Process(query string) (*Response, error) {
+func (a *Agent) Process(query string) (string, error) {
 	ctx := context.Background()
-	p := fmt.Sprintf(prompt.IntentDetector, a.toolRegistry.ToolsDescription(), query)
-	result, err := llms.GenerateFromSinglePrompt(ctx, a.llm, p)
+	executor := agents.NewExecutor(
+		a.agent,
+		agents.WithMaxIterations(10),
+	)
+	result, err := executor.Call(ctx,
+		map[string]any{"input": query},
+	)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	fmt.Println(result)
-	return &Response{}, nil
-}
-
-// Response 代理响应
-type Response struct {
-	Query      string                 `json:"query"`
-	Intent     string                 `json:"intent"`
-	Confidence float64                `json:"confidence"`
-	Result     string                 `json:"result"`
-	Data       map[string]interface{} `json:"data,omitempty"`
-	Error      string                 `json:"error,omitempty"`
-}
-
-// ListTools 列出所有可用工具
-func (a *Agent) ListTools() []string {
-	return a.toolRegistry.ListTools()
+	output, ok := result["output"].(string)
+	if !ok {
+		return "", fmt.Errorf("output missing")
+	}
+	return output, nil
 }
